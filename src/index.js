@@ -1,45 +1,65 @@
 import React from "react";
 import * as ReactDOM from "react-dom";
 
-// Slomux - реализация Flux, в которой, как следует из названия, что-то сломано.
-// Нужно починить то, что сломано, и подготовить Slomux к использованию на больших проектах, где крайне важна производительность
-
-// ВНИМАНИЕ! Замена slomux на готовое решение не является решением задачи
-
-const createStore = (reducer, initialState) => {
+const createStore = (reducer, initialState = {}) => {
   let currentState = initialState;
   let listeners = [];
 
   const getState = () => currentState;
+
   const dispatch = (action) => {
     currentState = reducer(currentState, action);
+
     listeners.forEach((listener) => listener());
   };
 
   const subscribe = (listener) => listeners.push(listener);
 
-  return { getState, dispatch, subscribe };
+  return {
+    getState,
+    dispatch,
+    subscribe,
+  };
 };
 
-const useSelector = (selector) => {
-  const ctx = React.useContext(React.createContext(null));
-  if (!ctx) {
-    return 0;
-  }
+const context = React.createContext({});
 
-  return selector(ctx.store.getState());
+const isEqual = (current, prev) => current === prev;
+
+const useSelector = (selector, compareFn = isEqual) => {
+  const ctx = React.useContext(context);
+
+  const getValue = React.useCallback((ctx) => selector(ctx.store.getState()), [selector]);
+
+  const [value, setValue] = React.useState(getValue(ctx));
+
+  React.useEffect(() => {
+    const subscriber = () => {
+      const next = getValue(ctx);
+
+      setValue((prev) => {
+        if (!compareFn(prev, next)) {
+          return next;
+        }
+
+        return prev;
+      });
+    };
+
+    ctx.store.subscribe(subscriber);
+  }, [compareFn, getValue, ctx]);
+
+  return value;
 };
+
 const useDispatch = () => {
-  const ctx = React.useContext(React.createContext(null));
-  if (!ctx) {
-    return () => {};
-  }
+  const ctx = React.useContext(context);
 
   return ctx.store.dispatch;
 };
 
-const Provider = ({ store, context, children }) => {
-  const Context = context || React.createContext(null);
+const Provider = ({ store, children }) => {
+  const Context = context;
 
   return <Context.Provider value={{ store }}>{children}</Context.Provider>;
 };
@@ -70,52 +90,58 @@ const defaultState = {
 const reducer = (state = defaultState, action) => {
   switch (action.type) {
     case UPDATE_COUNTER:
-      state.counter += action.payload;
+      return { ...state, counter: state.counter + action.payload };
     case CHANGE_STEP_SIZE:
-      state.stepSize = action.payload;
-    default: {
-    }
+      return { ...state, stepSize: action.payload };
+    default:
+      return state;
   }
 };
 
-// ВНИМАНИЕ! Использование собственной реализации useSelector и dispatch обязательно
+// selectors
+const counterSelector = (state) => state.counter;
+const stepSelector = (state) => state.stepSize;
+
+// lib
+const toNumber = (value) => ~~value;
+
+// Components
 const Counter = () => {
-  const counter = useSelector((state) => state.counter);
+  const counter = useSelector(counterSelector);
+  const stepSize = useSelector(stepSelector);
   const dispatch = useDispatch();
+
+  const add = () => dispatch(updateCounter(toNumber(stepSize)));
+  const sub = () => dispatch(updateCounter(-toNumber(stepSize)));
 
   return (
     <div>
-      <button onClick={() => dispatch(updateCounter(-1))}>-</button>
+      <button onClick={sub}>-</button>
       <span> {counter} </span>
-      <button onClick={() => dispatch(updateCounter(1))}>+</button>
+      <button onClick={add}>+</button>
     </div>
   );
 };
 
 const Step = () => {
-  const stepSize = useSelector(
-    (state) => state.stepSize,
-    (current, prev) => current === prev
-  );
+  const stepSize = useSelector(stepSelector);
   const dispatch = useDispatch();
+
+  const handleChange = (e) => dispatch(changeStepSize(e.target.value));
 
   return (
     <div>
       <div>Значение счётчика должно увеличиваться или уменьшаться на заданную величину шага</div>
       <div>Текущая величина шага: {stepSize}</div>
-      <input
-        type="range"
-        min="1"
-        max="5"
-        value={stepSize}
-        onChange={({ target }) => dispatch(changeStepSize(target.value))}
-      />
+      <input type="range" min="1" max="5" value={stepSize} onChange={handleChange} />
     </div>
   );
 };
 
+const store = createStore(reducer, defaultState);
+
 ReactDOM.render(
-  <Provider store={createStore(reducer, defaultState)}>
+  <Provider store={store}>
     <Step />
     <Counter />
   </Provider>,
