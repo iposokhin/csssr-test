@@ -13,7 +13,15 @@ const createStore = (reducer, initialState = {}) => {
     listeners.forEach((listener) => listener());
   };
 
-  const subscribe = (listener) => listeners.push(listener);
+  const subscribe = (listener) => {
+    listeners.push(listener);
+
+    const unsubsribe = () => {
+      listeners = listeners.filter((i) => i !== listener);
+    };
+
+    return unsubsribe;
+  };
 
   return {
     getState,
@@ -46,7 +54,9 @@ const useSelector = (selector, compareFn = isEqual) => {
       });
     };
 
-    ctx.store.subscribe(subscriber);
+    const unsubsribe = ctx.store.subscribe(subscriber);
+
+    return () => unsubsribe();
   }, [compareFn, getValue, ctx]);
 
   return value;
